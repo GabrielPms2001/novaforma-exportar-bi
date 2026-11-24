@@ -19,3 +19,6 @@ Mude em Formatar > Exportação > "Endereço da página de download" se for outr
 - `dist/` visual empacotado (.pbiviz)
 
 Não coloque dados reais da empresa neste repositório.
+
+## Painel Dia
+`painel-dia/` tem o visual "Painel Dia (NovaForma)" (botão Exportar com menu) e a medida `Painel_Dia_medida.dax`. A página `download-page/` atende os dois visuais. Para regerar a página: `painel-dia/ponte/build.sh`.

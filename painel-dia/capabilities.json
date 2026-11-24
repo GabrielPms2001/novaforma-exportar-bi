@@ -1,0 +1,138 @@
+{
+    "privileges": [
+        {
+            "name": "ExportContent",
+            "essential": false
+        },
+        {
+            "name": "WebAccess",
+            "essential": false,
+            "parameters": [
+                "https://*.github.io"
+            ]
+        }
+    ],
+    "dataRoles": [
+        {
+            "displayName": "Representante",
+            "name": "rep",
+            "kind": "Grouping"
+        },
+        {
+            "displayName": "Painel Dia (medida)",
+            "name": "dados",
+            "kind": "Measure"
+        }
+    ],
+    "dataViewMappings": [
+        {
+            "table": {
+                "rows": {
+                    "select": [
+                        {
+                            "bind": {
+                                "to": "rep"
+                            }
+                        },
+                        {
+                            "bind": {
+                                "to": "dados"
+                            }
+                        }
+                    ],
+                    "dataReductionAlgorithm": {
+                        "window": {
+                            "count": 30000
+                        }
+                    }
+                }
+            }
+        }
+    ],
+    "objects": {
+        "titulo": {
+            "displayName": "Título",
+            "properties": {
+                "mostrar": {
+                    "displayName": "Mostrar",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "texto": {
+                    "displayName": "Texto",
+                    "type": {
+                        "text": true
+                    }
+                }
+            }
+        },
+        "medidores": {
+            "displayName": "Medidores",
+            "properties": {
+                "inicioAmarelo": {
+                    "displayName": "Início do amarelo (%)",
+                    "type": {
+                        "numeric": true
+                    }
+                },
+                "inicioVerde": {
+                    "displayName": "Início do verde (%)",
+                    "type": {
+                        "numeric": true
+                    }
+                }
+            }
+        },
+        "fundo": {
+            "displayName": "Fundo do visual",
+            "properties": {
+                "mostrar": {
+                    "displayName": "Mostrar",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "cor": {
+                    "displayName": "Cor",
+                    "type": {
+                        "fill": {
+                            "solid": {
+                                "color": true
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "exportacao": {
+            "displayName": "Exportação",
+            "properties": {
+                "mostrarBotao": {
+                    "displayName": "Mostrar botão Exportar",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "nomeArquivo": {
+                    "displayName": "Nome do arquivo Excel",
+                    "type": {
+                        "text": true
+                    }
+                },
+                "usarPagina": {
+                    "displayName": "Baixar pela página de download (link)",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "urlPagina": {
+                    "displayName": "Endereço da página de download",
+                    "type": {
+                        "text": true
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,62 @@
+// Medida de carga do visual "Painel Dia" (tabela @Medida, pasta "10 Painel Dia (visual)")
+// Só sai linha de representante com movimento (CLI Dia > 0 ou CLI Mês); a 1ª linha sempre sai, pois carrega o cabeçalho.
+// Uma linha por representante:  nome|uf|sup|cliDia|cliMes|FB|FC|CT|PT|AP|vendidoDia
+// Na primeira linha vai junto o cabeçalho, depois de "~":
+//   vendidoDia|cliDia|vendidoMes|cliMesCartao|repsDia|repsFB|repsFC|repsCT|repsPT|repsAP|repsPainel
+Painel Dia =
+VAR _nome = SELECTEDVALUE ( d_Representantes[Nome do Rep] )
+VAR _painel =
+    CALCULATE (
+        COUNTROWS ( d_Representantes ),
+        KEEPFILTERS ( d_Representantes[Ativo SAP] = TRUE () ),
+        KEEPFILTERS ( d_Representantes[Código do Vendedor] <> "#" ),
+        KEEPFILTERS ( NOT CONTAINSSTRING ( d_Representantes[Nome do Rep], "VENDA" ) )
+    ) > 0
+VAR _uf = SELECTEDVALUE ( d_Representantes[UF], MIN ( d_Representantes[UF] ) )
+VAR _sup = SELECTEDVALUE ( d_Representantes[Supervisão], MIN ( d_Representantes[Supervisão] ) )
+VAR _dia = [CLI Dia]
+VAR _mes = [CLI Mês]
+VAR _fb = [CLI Mês FB]
+VAR _fc = [CLI Mês FC]
+VAR _ct = [CLI Mês CT]
+VAR _pt = [CLI Mês PT]
+VAR _ap = [CLI Mês AP]
+VAR _vd = [Vendido Dia]
+VAR _linha =
+    SUBSTITUTE ( SUBSTITUTE ( _nome, "|", " " ), "~", " " ) & "|" & _uf & "|" & _sup & "|"
+        & FORMAT ( COALESCE ( _dia, 0 ), "0", "en-US" ) & "|"
+        & IF ( ISBLANK ( _mes ), "", FORMAT ( _mes, "0", "en-US" ) ) & "|"
+        & IF ( ISBLANK ( _fb ), "", FORMAT ( _fb, "0", "en-US" ) ) & "|"
+        & IF ( ISBLANK ( _fc ), "", FORMAT ( _fc, "0", "en-US" ) ) & "|"
+        & IF ( ISBLANK ( _ct ), "", FORMAT ( _ct, "0", "en-US" ) ) & "|"
+        & IF ( ISBLANK ( _pt ), "", FORMAT ( _pt, "0", "en-US" ) ) & "|"
+        & IF ( ISBLANK ( _ap ), "", FORMAT ( _ap, "0", "en-US" ) ) & "|"
+        & FORMAT ( COALESCE ( _vd, 0 ), "0.00", "en-US" )
+VAR _primeiro =
+    CALCULATE (
+        MIN ( d_Representantes[Nome do Rep] ),
+        REMOVEFILTERS ( d_Representantes ),
+        KEEPFILTERS ( d_Representantes[Ativo SAP] = TRUE () ),
+        KEEPFILTERS ( d_Representantes[Código do Vendedor] <> "#" ),
+        KEEPFILTERS ( NOT CONTAINSSTRING ( d_Representantes[Nome do Rep], "VENDA" ) )
+    )
+VAR _cab =
+    IF (
+        _nome = _primeiro,
+        "~"
+            & FORMAT ( COALESCE ( CALCULATE ( [Vendido Dia], REMOVEFILTERS ( d_Representantes ) ), 0 ), "0.00", "en-US" ) & "|"
+            & FORMAT ( COALESCE ( CALCULATE ( [CLI Dia], REMOVEFILTERS ( d_Representantes ) ), 0 ), "0", "en-US" ) & "|"
+            & FORMAT ( COALESCE ( CALCULATE ( [Vendido Mês], REMOVEFILTERS ( d_Representantes ) ), 0 ), "0.00", "en-US" ) & "|"
+            & FORMAT ( COALESCE ( CALCULATE ( [CLI Mês (Cartão)], REMOVEFILTERS ( d_Representantes ) ), 0 ), "0", "en-US" ) & "|"
+            & FORMAT ( COALESCE ( CALCULATE ( [Reps Dia], REMOVEFILTERS ( d_Representantes ) ), 0 ), "0", "en-US" ) & "|"
+            & FORMAT ( COALESCE ( CALCULATE ( [Reps Dia FB], REMOVEFILTERS ( d_Representantes ) ), 0 ), "0", "en-US" ) & "|"
+            & FORMAT ( COALESCE ( CALCULATE ( [Reps Dia FC], REMOVEFILTERS ( d_Representantes ) ), 0 ), "0", "en-US" ) & "|"
+            & FORMAT ( COALESCE ( CALCULATE ( [Reps Dia CT], REMOVEFILTERS ( d_Representantes ) ), 0 ), "0", "en-US" ) & "|"
+            & FORMAT ( COALESCE ( CALCULATE ( [Reps Dia PT], REMOVEFILTERS ( d_Representantes ) ), 0 ), "0", "en-US" ) & "|"
+            & FORMAT ( COALESCE ( CALCULATE ( [Reps Dia AP], REMOVEFILTERS ( d_Representantes ) ), 0 ), "0", "en-US" ) & "|"
+            & FORMAT ( COALESCE ( CALCULATE ( [Reps Painel], REMOVEFILTERS ( d_Representantes ) ), 0 ), "0", "en-US" ),
+        ""
+    )
+VAR _movimento = _dia > 0 || NOT ISBLANK ( _mes )
+RETURN
+    IF ( _painel && NOT ISBLANK ( _nome ) && ( _movimento || _nome = _primeiro ), _linha & _cab )
