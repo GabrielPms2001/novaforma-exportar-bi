@@ -3,9 +3,9 @@
 Visual personalizado do Power BI com botão **Exportar**: o painel inteiro (cards, gráficos, matriz) vai para o Excel.
 
 ## Como funciona
-1. O visual monta o `.xlsx` (cards, gráficos como imagem, matriz editável, aba de dados opcional).
-2. Comprime o arquivo e abre o link da página de download com o arquivo no fragmento (`#`), que não é enviado ao servidor.
-3. A página `download-page/` reconstrói o arquivo no navegador e baixa.
+1. O visual envia só os dados (texto pequeno, comprimido) no link.
+2. A página `download-page/` redesenha os gráficos, monta o `.xlsx` no navegador e baixa. O link fica com poucos milhares de caracteres.
+3. Para gerar a página depois de mexer no código: `visual/ponte/build.sh` (copie o resultado para `download-page/index.html`).
 
 ## Publicar a página
 Settings > Pages > Branch `main`, pasta `/ (root)`. Endereço:

@@ -344,6 +344,10 @@ export class Visual implements IVisual {
         this.fecharMenu();
         try {
             this.mostrar("Gerando Excel…");
+            const url = (this.settings.exportacao.urlPagina.value || "").trim();
+            const viaPagina = this.settings.exportacao.usarPagina.value && /^https:\/\//i.test(url);
+            const base = (this.settings.exportacao.nomeArquivo.value || "painel").replace(/[^\w\-]+/g, "_");
+            if (viaPagina) { await this.abrirPaginaDownload(url, base + ".xlsx", op); return; }
             const gr = op.graficos ? await this.graficosPng() : [];
             const imagens = await Promise.all(gr.map(async g => ({ png: await this.blobParaBytes(g.blob), w: g.w, h: g.h })));
             const bytes = gerarXlsx({
@@ -351,13 +355,7 @@ export class Visual implements IVisual {
                 kpis: this.d.kpis, imagens, meses: this.d.meses, unidades: this.d.unidades,
                 matriz: this.d.matriz, linhas: this.linhas, opcoes: op
             });
-            const base = (this.settings.exportacao.nomeArquivo.value || "painel").replace(/[^\w\-]+/g, "_");
             const nome = base + ".xlsx";
-            const url = (this.settings.exportacao.urlPagina.value || "").trim();
-            if (this.settings.exportacao.usarPagina.value && /^https:\/\//i.test(url)) {
-                await this.abrirPaginaDownload(url, bytes, nome);
-                return;
-            }
             let permitido = false;
             try {
                 const st = await this.host.downloadService.exportStatus();
@@ -373,28 +371,37 @@ export class Visual implements IVisual {
         } catch (e) { this.mostrar("Erro ao exportar: " + (e instanceof Error ? e.message : String(e)), true); }
     }
 
-    // Abre a página de download com o arquivo no fragmento (#), que não vai para o servidor.
-    private async abrirPaginaDownload(url: string, bytes: Uint8Array, nome: string): Promise<void> {
-        let dados: Uint8Array = bytes;
+    // Abre a página de download levando só os dados (texto pequeno) no fragmento (#).
+    // A página redesenha os gráficos e monta o .xlsx no navegador.
+    private async abrirPaginaDownload(url: string, nome: string, op: OpcoesExport): Promise<void> {
+        const w = 520, h = 300;
+        const carga = {
+            titulo: this.settings.titulo.texto.value || "Painel", geradoEm: agora(),
+            kpis: this.d.kpis, meses: this.d.meses, unidades: this.d.unidades, matriz: this.d.matriz,
+            linhas: op.dados ? this.linhas : [], opcoes: op,
+            svgs: op.graficos ? [
+                { svg: this.svgDoc(w, h, this.graficoMeses(w, h)), w, h },
+                { svg: this.svgDoc(w, h, this.graficoUnidades(w, h)), w, h }
+            ] : []
+        };
+        let dados: Uint8Array = new TextEncoder().encode(JSON.stringify(carga));
         let comp = "0";
         try {
             const CS = (window as unknown as { CompressionStream?: new (f: string) => { readable: ReadableStream; writable: WritableStream } }).CompressionStream;
             if (CS) {
                 const cs = new CS("deflate-raw");
-                const w = cs.writable.getWriter();
-                void w.write(bytes as BufferSource); void w.close();
-                const buf = await new Response(cs.readable).arrayBuffer();
-                dados = new Uint8Array(buf); comp = "1";
+                const wr = cs.writable.getWriter();
+                void wr.write(dados as BufferSource); void wr.close();
+                dados = new Uint8Array(await new Response(cs.readable).arrayBuffer()); comp = "1";
             }
-        } catch { dados = bytes; comp = "0"; }
+        } catch { comp = "0"; }
         let bin = "";
         for (let i = 0; i < dados.length; i += 0x8000) bin += String.fromCharCode.apply(null, Array.from(dados.subarray(i, i + 0x8000)));
         const b64 = btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-        const params = new URLSearchParams({ v: "1", n: nome, c: comp, t: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", d: b64 });
+        const params = new URLSearchParams({ v: "2", n: nome, c: comp, j: b64 });
         const alvo = url.replace(/#.*$/, "") + "#" + params.toString();
-        if (alvo.length > 1000000) { this.mostrar("O arquivo passou do limite do link (~1 MB). Desmarque os gráficos ou a aba de dados.", true); return; }
         this.host.launchUrl(alvo);
-        this.mostrar("Página de download aberta: " + nome + " (" + Math.round(dados.length / 1024) + " KB)");
+        this.mostrar("Página de download aberta: " + nome + " (link de " + Math.round(alvo.length / 1024) + " mil caracteres)");
     }
 
     public getFormattingModel(): powerbi.visuals.FormattingModel {
