@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NovaForma · Download do Excel</title>
+<style>
+*{box-sizing:border-box}html,body{min-height:100%;margin:0}
+body{display:grid;padding:24px;color:#182230;background:#eef2f7;font-family:"Segoe UI",Arial,sans-serif;place-items:center}
+main{width:min(100%,460px);background:#fff;border:1px solid #dbe3ee;border-radius:14px;box-shadow:0 18px 50px rgba(11,42,74,.14);overflow:hidden;text-align:center}
+.faixa{background:#0B2A4A;color:#fff;padding:14px 20px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;font-size:14px}
+.corpo{padding:28px 32px 32px}
+.st{display:grid;width:60px;height:60px;margin:0 auto 16px;color:#fff;background:#0B2A4A;border-radius:50%;font-size:28px;font-weight:700;place-items:center}
+.st.erro{background:#b42318}
+h1{margin:0 0 8px;font-size:24px}p{color:#667085;line-height:1.55;margin:0 0 8px}
+.arq{display:flex;justify-content:space-between;gap:16px;padding:12px 14px;margin:20px 0 14px;text-align:left;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:10px}
+a.bt{display:block;padding:13px 18px;color:#fff;background:#0B2A4A;border-radius:10px;font-weight:700;text-decoration:none}
+.nota{font-size:12.5px}.oculto{display:none}
+</style>
+</head>
+<body>
+<main>
+ <div class="faixa">NovaForma · Exportação para Excel</div>
+ <div class="corpo">
+  <div id="st" class="st">…</div>
+  <h1 id="tit">Preparando seu arquivo</h1>
+  <p id="msg">O download começa automaticamente.</p>
+  <div id="arq" class="arq oculto"><strong id="nome"></strong><span id="tam"></span></div>
+  <a id="bt" class="bt oculto">Baixar arquivo</a>
+  <p id="nota" class="nota oculto">O arquivo foi montado só neste navegador. Nada é guardado em servidor.</p>
+ </div>
+</main>
+<script>
+(async () => {
+  const $ = s => document.querySelector(s);
+  const erro = m => { $("#st").textContent = "!"; $("#st").classList.add("erro"); $("#tit").textContent = "Não foi possível preparar o arquivo"; $("#msg").textContent = m; };
+  const p = new URLSearchParams(location.hash.slice(1));
+  const d = p.get("d");
+  if (!d) { erro("Nenhum arquivo recebido. Abra esta página pelo botão Exportar do painel."); return; }
+  try {
+    const nome = p.get("n") || "painel.xlsx";
+    const mime = p.get("t") || "application/octet-stream";
+    const b64 = d.replace(/-/g, "+").replace(/_/g, "/");
+    const bin = atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, "="));
+    let bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+    if (p.get("c") === "1") {
+      const ds = new DecompressionStream("deflate-raw");
+      const w = ds.writable.getWriter(); w.write(bytes); w.close();
+      bytes = new Uint8Array(await new Response(ds.readable).arrayBuffer());
+    }
+    const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
+    const a = $("#bt"); a.href = url; a.download = nome;
+    $("#st").textContent = "✓"; $("#tit").textContent = "Arquivo pronto"; $("#msg").textContent = "Se o download não começar, use o botão abaixo.";
+    $("#nome").textContent = nome;
+    $("#tam").textContent = bytes.length < 1048576 ? (bytes.length / 1024).toFixed(1) + " KB" : (bytes.length / 1048576).toFixed(1) + " MB";
+    ["#arq", "#bt", "#nota"].forEach(s => $(s).classList.remove("oculto"));
+    history.replaceState(null, "", location.pathname);
+    a.click();
+  } catch { erro("O arquivo chegou incompleto ou passou do limite do endereço."); }
+})();
+</script>
+</body>
+</html>
