@@ -1,0 +1,111 @@
+// Medida de carga do visual "Pedido Diário" (tabela @Medida)
+// Uma linha por representante do painel:  nome|uf|sup|cliMes|vendidoMes|dias
+//   dias = "dia:clientes" separados por vírgula, só dias com clientes > 0 (ex.: 1:1,3:4,6:2)
+//   clientes = clientes distintos positivados no dia (faturamento + carteira, mesma regra de [CLI Dia] / [CLI Mês])
+// A "primeira linha" é a do 1º representante (ordem alfabética) entre os selecionados (ALLSELECTED), para o cabeçalho não sumir com filtro de supervisão.
+// Na primeira linha vai junto o cabeçalho, depois de "~":
+//   vendidoMes|cliMesCartao|repsMes|repsFB|repsFC|repsCT|repsPT|repsAP|repsPainel|diasDoMes
+//   diasDoMes = dias do mês (até a Data Ref) com algum cliente positivado no painel, separados por vírgula (ex.: 1,2,3,4,5,6,9,10,11,12)
+Pedido Diário (visual) =
+VAR _nome = SELECTEDVALUE ( d_Representantes[Nome do Rep] )
+VAR _exibir = SELECTEDVALUE ( d_Representantes[Chave do Vendedor], _nome )
+VAR _painel =
+    CALCULATE (
+        COUNTROWS ( d_Representantes ),
+        KEEPFILTERS ( d_Representantes[Ativo SAP] = TRUE () ),
+        KEEPFILTERS ( d_Representantes[Código do Vendedor] <> "#" ),
+        KEEPFILTERS ( NOT CONTAINSSTRING ( d_Representantes[Nome do Rep], "VENDA" ) )
+    ) > 0
+VAR _uf = SELECTEDVALUE ( d_Representantes[UF], MIN ( d_Representantes[UF] ) )
+VAR _sup = SELECTEDVALUE ( d_Representantes[Supervisão], MIN ( d_Representantes[Supervisão] ) )
+VAR _ref = [Data Ref]
+VAR _ini = DATE ( YEAR ( _ref ), MONTH ( _ref ), 1 )
+VAR _exc = { "YREB", "YROB", "YBON", "YAMG", "YDC1", "YDC2", "YROS", "REB", "YR1T" }
+// pares (cliente, data) positivados no mês até a Data Ref, no contexto atual de representante
+VAR _pares =
+    DISTINCT (
+        UNION (
+            CALCULATETABLE (
+                SELECTCOLUMNS ( f_Faturamento, "@c", f_Faturamento[Cod. Cliente], "@d", INT ( f_Faturamento[Data entrada] ) ),
+                REMOVEFILTERS ( d_Calendario ),
+                f_Faturamento[Data entrada] >= _ini && f_Faturamento[Data entrada] < _ref + 1,
+                NOT ( f_Faturamento[Tp.doc.faturamento] IN _exc ),
+                KEEPFILTERS ( f_Faturamento[Família Comercial] IN { "FORRO E ACESSÓRIOS", "FORRO COLORIDO", "CANTINHO", "PORTA PVC", "ACESSORIO PARA PISO" } )
+            ),
+            CALCULATETABLE (
+                SELECTCOLUMNS ( f_Carteira, "@c", f_Carteira[Cod. Cliente], "@d", INT ( f_Carteira[Data entrada] ) ),
+                REMOVEFILTERS ( d_Calendario ),
+                f_Carteira[Data entrada] >= _ini && f_Carteira[Data entrada] < _ref + 1,
+                f_Carteira[Motivo de recusa] = "Não atribuído",
+                NOT ( f_Carteira[Tipo doc.venda] IN _exc ),
+                KEEPFILTERS ( f_Carteira[Família] IN { "FORRO E ACESS. BR", "FORRO E ACESS. COLOR", "CANTINHO", "PORTA PVC", "ACESS. PARA PISO" } )
+            )
+        )
+    )
+VAR _porDia = GROUPBY ( _pares, [@d], "@n", COUNTX ( CURRENTGROUP (), 1 ) )
+VAR _dias = CONCATENATEX ( _porDia, FORMAT ( DAY ( [@d] ), "0" ) & ":" & FORMAT ( [@n], "0" ), ",", [@d], ASC )
+VAR _mes = [CLI Mês]
+VAR _vm = [Vendido Mês]
+VAR _linha =
+    SUBSTITUTE ( SUBSTITUTE ( _exibir, "|", " " ), "~", " " ) & "|" & _uf & "|" & _sup & "|"
+        & IF ( ISBLANK ( _mes ), "", FORMAT ( _mes, "0", "en-US" ) ) & "|"
+        & FORMAT ( COALESCE ( _vm, 0 ), "0.00", "en-US" ) & "|"
+        & _dias
+VAR _primeiro =
+    CALCULATE (
+        MIN ( d_Representantes[Nome do Rep] ),
+        ALLSELECTED ( d_Representantes ),
+        KEEPFILTERS ( d_Representantes[Ativo SAP] = TRUE () ),
+        KEEPFILTERS ( d_Representantes[Código do Vendedor] <> "#" ),
+        KEEPFILTERS ( NOT CONTAINSSTRING ( d_Representantes[Nome do Rep], "VENDA" ) )
+    )
+// dias do mês com algum cliente positivado pelos representantes do painel selecionados (domingo/feriado com venda entra; dia sem venda fica fora)
+VAR _diasMes =
+    IF (
+        _nome = _primeiro,
+        CALCULATE (
+            VAR _p =
+                DISTINCT (
+                    UNION (
+                        CALCULATETABLE (
+                            SELECTCOLUMNS ( f_Faturamento, "@d", INT ( f_Faturamento[Data entrada] ) ),
+                            REMOVEFILTERS ( d_Calendario ),
+                            f_Faturamento[Data entrada] >= _ini && f_Faturamento[Data entrada] < _ref + 1,
+                            NOT ( f_Faturamento[Tp.doc.faturamento] IN _exc ),
+                            KEEPFILTERS ( f_Faturamento[Família Comercial] IN { "FORRO E ACESSÓRIOS", "FORRO COLORIDO", "CANTINHO", "PORTA PVC", "ACESSORIO PARA PISO" } )
+                        ),
+                        CALCULATETABLE (
+                            SELECTCOLUMNS ( f_Carteira, "@d", INT ( f_Carteira[Data entrada] ) ),
+                            REMOVEFILTERS ( d_Calendario ),
+                            f_Carteira[Data entrada] >= _ini && f_Carteira[Data entrada] < _ref + 1,
+                            f_Carteira[Motivo de recusa] = "Não atribuído",
+                            NOT ( f_Carteira[Tipo doc.venda] IN _exc ),
+                            KEEPFILTERS ( f_Carteira[Família] IN { "FORRO E ACESS. BR", "FORRO E ACESS. COLOR", "CANTINHO", "PORTA PVC", "ACESS. PARA PISO" } )
+                        )
+                    )
+                )
+            RETURN CONCATENATEX ( _p, FORMAT ( DAY ( [@d] ), "0" ), ",", [@d], ASC ),
+            ALLSELECTED ( d_Representantes ),
+            KEEPFILTERS ( d_Representantes[Ativo SAP] = TRUE () ),
+            KEEPFILTERS ( d_Representantes[Código do Vendedor] <> "#" ),
+            KEEPFILTERS ( NOT CONTAINSSTRING ( d_Representantes[Nome do Rep], "VENDA" ) )
+        )
+    )
+VAR _cab =
+    IF (
+        _nome = _primeiro,
+        "~"
+            & FORMAT ( COALESCE ( CALCULATE ( [Vendido Mês], REMOVEFILTERS ( d_Representantes ) ), 0 ), "0.00", "en-US" ) & "|"
+            & FORMAT ( COALESCE ( CALCULATE ( [CLI Mês (Cartão)], REMOVEFILTERS ( d_Representantes ) ), 0 ), "0", "en-US" ) & "|"
+            & FORMAT ( COALESCE ( CALCULATE ( [Reps Mês], REMOVEFILTERS ( d_Representantes ) ), 0 ), "0", "en-US" ) & "|"
+            & FORMAT ( COALESCE ( CALCULATE ( [Reps Mês FB], REMOVEFILTERS ( d_Representantes ) ), 0 ), "0", "en-US" ) & "|"
+            & FORMAT ( COALESCE ( CALCULATE ( [Reps Mês FC], REMOVEFILTERS ( d_Representantes ) ), 0 ), "0", "en-US" ) & "|"
+            & FORMAT ( COALESCE ( CALCULATE ( [Reps Mês CT], REMOVEFILTERS ( d_Representantes ) ), 0 ), "0", "en-US" ) & "|"
+            & FORMAT ( COALESCE ( CALCULATE ( [Reps Mês PT], REMOVEFILTERS ( d_Representantes ) ), 0 ), "0", "en-US" ) & "|"
+            & FORMAT ( COALESCE ( CALCULATE ( [Reps Mês AP], REMOVEFILTERS ( d_Representantes ) ), 0 ), "0", "en-US" ) & "|"
+            & FORMAT ( COALESCE ( CALCULATE ( [Reps Painel], REMOVEFILTERS ( d_Representantes ) ), 0 ), "0", "en-US" ) & "|"
+            & _diasMes,
+        ""
+    )
+RETURN
+    IF ( _painel && NOT ISBLANK ( _nome ), _linha & _cab )

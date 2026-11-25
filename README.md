@@ -22,3 +22,6 @@ Não coloque dados reais da empresa neste repositório.
 
 ## Painel Dia
 `painel-dia/` tem o visual "Painel Dia (NovaForma)" (botão Exportar com menu) e a medida `Painel_Dia_medida.dax`. A página `download-page/` atende os dois visuais. Para regerar a página: `painel-dia/ponte/build.sh`.
+
+## Pedido Diário
+`pedido-diario/` tem o visual "Pedido Diário (NovaForma)": card VENDIDO NO MÊS + 6 medidores (igual ao Painel Mês) e a matriz POSITIVAÇÃO DIÁRIA - MÊS (clientes positivados por representante em cada dia do mês com venda). Medida: `pedido-diario/Pedido_Diario_medida.dax`. Pacote: `dist/PedidoDiario_v1.0.pbiviz`. A página `download-page/` (v1.8) atende os quatro tipos (painel original, Painel Dia, Painel Mês, Pedido Diário). Para regerar a página: `pagina/build.sh`.

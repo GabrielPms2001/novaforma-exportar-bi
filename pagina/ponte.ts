@@ -2,10 +2,12 @@
 import { gerarXlsx, EntradaXlsx } from "../visual/src/xlsx";
 import { gerarXlsxDia, EntradaDia } from "../painel-dia/src/xlsxDia";
 import { gerarXlsxMes, EntradaMes, LinhaMes } from "../painel-mes/src/xlsxMes";
+import { gerarXlsxPedido, EntradaPedido, LinhaPedido } from "../pedido-diario/src/xlsxPedido";
 import { ANTON_B64 } from "./fonte";
 
 interface CargaDia extends Omit<EntradaDia, "imagens"> { tipo: "painelDia"; svgs: { svg: string; w: number; h: number }[]; }
 interface CargaMes { tipo: "painelMes"; titulo: string; geradoEm: string; linhas: LinhaMes[]; opcoes: EntradaMes["opcoes"]; card: { svg: string; w: number; h: number } | null; svgs: { svg: string; w: number; h: number }[]; }
+interface CargaPedido { tipo: "pedidoDiario"; titulo: string; geradoEm: string; dias: number[]; linhas: LinhaPedido[]; opcoes: EntradaPedido["opcoes"]; card: { svg: string; w: number; h: number } | null; svgs: { svg: string; w: number; h: number }[]; }
 interface Carga extends Omit<EntradaXlsx, "imagens"> { svgs: { svg: string; w: number; h: number }[]; }
 
 const $ = (s: string): HTMLElement => document.querySelector(s) as HTMLElement;
@@ -60,7 +62,7 @@ function entregar(bytes: Uint8Array, nome: string, mime: string): void {
         const j = p.get("j"), d = p.get("d");
         if (j) {
             const bruto = p.get("c") === "1" ? await inflar(b64u(j)) : b64u(j);
-            const carga = JSON.parse(new TextDecoder().decode(bruto)) as Carga | CargaDia | CargaMes;
+            const carga = JSON.parse(new TextDecoder().decode(bruto)) as Carga | CargaDia | CargaMes | CargaPedido;
             const png = async (g: { svg: string; w: number; h: number }) => ({ png: await svgParaPng(g.svg, g.w, g.h), w: g.w, h: g.h });
             const imagens = [];
             for (const g of carga.svgs || []) { imagens.push(await png(g)); }
@@ -68,11 +70,15 @@ function entregar(bytes: Uint8Array, nome: string, mime: string): void {
                 const m = carga as CargaMes;
                 const card = m.card ? await png(m.card) : null;
                 entregar(gerarXlsxMes({ titulo: m.titulo, geradoEm: m.geradoEm, linhas: m.linhas, opcoes: m.opcoes, card, medidores: imagens }), nome, mime);
+            } else if ((carga as CargaPedido).tipo === "pedidoDiario") {
+                const m = carga as CargaPedido;
+                const card = m.card ? await png(m.card) : null;
+                entregar(gerarXlsxPedido({ titulo: m.titulo, geradoEm: m.geradoEm, dias: m.dias, linhas: m.linhas, opcoes: m.opcoes, card, medidores: imagens }), nome, mime);
             } else if ((carga as CargaDia).tipo === "painelDia") { entregar(gerarXlsxDia({ ...(carga as CargaDia), imagens }), nome, mime); }
             else { entregar(gerarXlsx({ ...(carga as Carga), imagens }), nome, mime); }
         } else if (d) {
             const b = b64u(d);
             entregar(p.get("c") === "1" ? await inflar(b) : b, nome, p.get("t") || mime);
-        } else { erro("Nenhum arquivo recebido (página v1.7; o endereço chegou com " + location.hash.length + " caracteres depois do #). Abra esta página pelo botão Exportar do painel."); }
+        } else { erro("Nenhum arquivo recebido (página v1.8; o endereço chegou com " + location.hash.length + " caracteres depois do #). Abra esta página pelo botão Exportar do painel."); }
     } catch (e) { erro("O arquivo chegou incompleto ou passou do limite do endereço. " + (e instanceof Error ? e.message : "")); }
 })();
