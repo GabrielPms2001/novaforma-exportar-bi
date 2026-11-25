@@ -4,6 +4,7 @@ import { FormattingSettingsService } from "powerbi-visuals-utils-formattingmodel
 import "./../style/visual.less";
 import { VisualSettings } from "./settings";
 import { gerarXlsxMes, paraBase64, OpcoesMes } from "./xlsxMes";
+import { Filtros, FiltroBasico, el, botao, dataBR } from "./filtros";
 
 import IVisual = powerbi.extensibility.visual.IVisual;
 import VisualConstructorOptions = powerbi.extensibility.visual.VisualConstructorOptions;
@@ -30,12 +31,6 @@ const MEDIDORES = [
 interface Linha { nome: string; uf: string; sup: string; mes: number | null; fam: (number | null)[]; vend: number; }
 interface Cab { vendMes: number; cliMes: number; repsMes: number; reps: number[]; repsPainel: number; }
 
-function el(tag: string, cls?: string, texto?: string): HTMLElement {
-    const e = document.createElement(tag);
-    if (cls) { e.className = cls; }
-    if (texto !== undefined) { e.textContent = texto; }
-    return e;
-}
 function sv(tag: string, atributos: Record<string, string>): SVGElement {
     const e = document.createElementNS(NS, tag);
     Object.keys(atributos).forEach(k => e.setAttribute(k, atributos[k]));
@@ -57,23 +52,32 @@ export class Visual implements IVisual {
     private settings: VisualSettings = new VisualSettings();
     private linhas: Linha[] = [];
     private cab: Cab | null = null;
+    private temDados = false;
+    private filtros: Filtros;
 
     constructor(options: VisualConstructorOptions) {
         this.host = options.host;
         this.raiz = el("div", "pd");
         options.element.appendChild(this.raiz);
+        this.filtros = new Filtros(this.host, this.raiz, () => this.desenhar(), () => this.settings.filtros, () => this.periodo(), "Painel Mês (visual)");
+        this.raiz.addEventListener("keydown", (ev: KeyboardEvent) => {
+            if (ev.key !== "Escape") { return; }
+            if (this.filtros.popAberto) { this.filtros.fechar(); ev.stopPropagation(); }
+            else if (this.menuAberto) { this.menuAberto = false; this.desenhar(); }
+        });
     }
 
     public update(options: VisualUpdateOptions): void {
         const dv = options.dataViews && options.dataViews[0];
         this.settings = this.fmtService.populateFormattingSettingsModel(VisualSettings, dv);
         this.lerDados(dv);
+        if (Array.isArray(options.jsonFilters)) { this.filtros.lerFiltros(options.jsonFilters as unknown as FiltroBasico[]); }
         if (dv && dv.metadata && dv.metadata.segment) { this.host.fetchMoreData(true); }
         this.desenhar();
     }
 
     private lerDados(dv: powerbi.DataView | undefined): void {
-        this.linhas = []; this.cab = null;
+        this.linhas = []; this.cab = null; this.temDados = false;
         const t = dv && dv.table;
         if (!t) { return; }
         let idx = t.columns.findIndex(c => c.roles && c.roles["dados"]);
@@ -81,11 +85,15 @@ export class Visual implements IVisual {
         for (const r of t.rows) {
             const bruto = r[idx];
             if (typeof bruto !== "string" || !bruto) { continue; }
+            this.temDados = true;
             const partes = bruto.split("~");
             const c = partes[0].split("|");
             if (partes[1]) {
-                const h = partes[1].split("|").map(x => Number(x) || 0);
+                // cabeçalho: 9 números (card e medidores) | dataRef | anos | meses | dias | supervisões | representantes | ufs | famílias | materiais
+                const hs = partes[1].split("|");
+                const h = hs.slice(0, 9).map(x => Number(x) || 0);
                 if (h.length >= 9) { this.cab = { vendMes: h[0], cliMes: h[1], repsMes: h[2], reps: h.slice(3, 8), repsPainel: h[8] }; }
+                this.filtros.lerCabecalho(hs, 9);
             }
             if (c.length < 10) { continue; }
             this.linhas.push({ nome: c[0], uf: c[1], sup: c[2], mes: num(c[3]), fam: [num(c[4]), num(c[5]), num(c[6]), num(c[7]), num(c[8])], vend: num(c[9]) || 0 });
@@ -143,7 +151,10 @@ export class Visual implements IVisual {
         while (raiz.firstChild) { raiz.removeChild(raiz.firstChild); }
         raiz.style.background = this.settings.fundo.mostrar.value ? this.settings.fundo.cor.value.value : "transparent";
         if (!this.cab) {
-            raiz.appendChild(el("div", "pd-vazio", "Arraste o campo Representante e a medida Painel Mês (visual) para o visual."));
+            // sem linhas: com filtro do botão ativo, deixa o botão para poder limpar
+            if (this.filtros.ativos() || this.temDados) { raiz.appendChild(this.acoes()); }
+            raiz.appendChild(el("div", "pd-vazio", this.filtros.ativos() || this.temDados ? "Sem representantes para os filtros escolhidos." : "Arraste o campo Representante e a medida Painel Mês (visual) para o visual."));
+            if (this.filtros.popAberto) { raiz.appendChild(this.filtros.painel()); }
             return;
         }
         const c = this.cab;
@@ -156,9 +167,23 @@ export class Visual implements IVisual {
         MEDIDORES.forEach(m => grade.appendChild(this.medidor(m.ind < 0 ? c.repsMes : c.reps[m.ind], c.repsPainel, m.rotulo)));
         topo.appendChild(grade);
         raiz.appendChild(topo);
-        if (this.settings.exportacao.mostrarBotao.value) { raiz.appendChild(this.menuExportar()); }
+        raiz.appendChild(this.acoes());
         if (this.settings.titulo.mostrar.value) { raiz.appendChild(el("div", "pd-titulo", this.settings.titulo.texto.value)); }
         raiz.appendChild(this.tabela());
+        if (this.filtros.popAberto) { raiz.appendChild(this.filtros.painel()); }
+    }
+
+    // botões Filtros e Exportar, no canto superior direito (onde já ficava o Exportar)
+    private acoes(): HTMLElement {
+        const a = el("div", "pd-acoes");
+        if (this.settings.filtros.mostrarBotao.value) { a.appendChild(this.filtros.botao("ex-btn", () => { this.menuAberto = false; })); }
+        if (this.settings.exportacao.mostrarBotao.value) { a.appendChild(this.menuExportar()); }
+        return a;
+    }
+
+    private periodo(): string {
+        const r = this.filtros.dataRef;
+        return r ? `Período: ${dataBR(r.slice(0, 8) + "01")} a ${dataBR(r)}` : "";
     }
 
     private kpi(rotulo: string, valor: string, clientes: number): HTMLElement {
@@ -213,7 +238,7 @@ export class Visual implements IVisual {
         btn.type = "button";
         btn.setAttribute("aria-haspopup", "true");
         btn.setAttribute("aria-expanded", String(this.menuAberto));
-        btn.addEventListener("click", () => { this.menuAberto = !this.menuAberto; this.desenhar(); });
+        btn.addEventListener("click", () => { this.menuAberto = !this.menuAberto; if (this.menuAberto) { this.filtros.popAberto = false; } this.desenhar(); });
         cx.appendChild(btn);
         if (this.menuAberto) {
             const m = el("div", "ex-menu");
@@ -227,10 +252,7 @@ export class Visual implements IVisual {
                 lb.appendChild(cb); lb.appendChild(document.createTextNode(" " + rot));
                 m.appendChild(lb);
             });
-            const go = el("button", "ex-go", "Baixar Excel") as HTMLButtonElement;
-            go.type = "button";
-            go.addEventListener("click", () => { void this.exportarExcel(); });
-            m.appendChild(go);
+            m.appendChild(botao("ex-go", "Baixar Excel", () => { void this.exportarExcel(); }));
             cx.appendChild(m);
         }
         if (this.aviso) { cx.appendChild(el("div", "ex-msg" + (this.avisoErro ? " erro" : ""), this.aviso)); }
@@ -296,7 +318,7 @@ export class Visual implements IVisual {
             for (const s of o.medidores ? this.svgsMedidores() : []) { medidores.push({ png: await this.svgParaPng(s.svg, s.w, s.h), w: s.w, h: s.h }); }
             let card = null;
             if (o.cards) { const sc = this.svgCard(); card = { png: await this.svgParaPng(sc.svg.replace("/*FONTE*/", ""), sc.w, sc.h), w: sc.w, h: sc.h }; }
-            const bytes = gerarXlsxMes({ titulo: this.settings.titulo.texto.value || "Painel Mês", geradoEm: this.agora(), linhas: this.linhas, card, medidores, opcoes: o });
+            const bytes = gerarXlsxMes({ titulo: this.settings.titulo.texto.value || "Painel Mês", geradoEm: this.agora(), periodo: this.periodo(), filtros: this.filtros.resumo(), linhas: this.linhas, card, medidores, opcoes: o });
             let permitido = false;
             try { permitido = (await this.host.downloadService.exportStatus()) === powerbi.PrivilegeStatus.Allowed; } catch { permitido = false; }
             if (permitido) {
@@ -316,7 +338,7 @@ export class Visual implements IVisual {
         const o = this.escolhas;
         const carga = {
             tipo: "painelMes", titulo: this.settings.titulo.texto.value || "Painel Mês", geradoEm: this.agora(),
-            linhas: this.linhas, opcoes: o, card: o.cards ? this.svgCard() : null, svgs: o.medidores ? this.svgsMedidores() : []
+            periodo: this.periodo(), filtros: this.filtros.resumo(), linhas: this.linhas, opcoes: o, card: o.cards ? this.svgCard() : null, svgs: o.medidores ? this.svgsMedidores() : []
         };
         let dados: Uint8Array = new TextEncoder().encode(JSON.stringify(carga));
         let comp = "0";

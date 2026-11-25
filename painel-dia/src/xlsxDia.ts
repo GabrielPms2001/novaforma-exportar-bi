@@ -4,7 +4,7 @@ export interface CabDia { vendDia: number; cliDia: number; vendMes: number; cliM
 export interface OpcoesDia { cards: boolean; medidores: boolean; tabela: boolean; dados: boolean; }
 export interface ImagemDia { png: Uint8Array; w: number; h: number; }
 export interface EntradaDia {
-    titulo: string; geradoEm: string; cab: CabDia; linhas: LinhaDia[]; imagens: ImagemDia[]; opcoes: OpcoesDia;
+    titulo: string; geradoEm: string; periodo?: string; filtros?: string; cab: CabDia; linhas: LinhaDia[]; imagens: ImagemDia[]; opcoes: OpcoesDia;
 }
 const enc = new TextEncoder();
 const CRC: number[] = (() => {
@@ -140,6 +140,13 @@ export function gerarXlsxDia(e: EntradaDia): Uint8Array {
             rows += `<row r="${r}">${c}</row>`;
         });
     }
+
+    // rodapé: dia/período e filtros aplicados (botão Filtros), como no Pedido Diário / Reps Sem Pedidos
+    let rRod = o.tabela ? primeira + e.linhas.length + 1 : linhaFaixa;
+    [e.periodo || "", e.filtros || ""].filter(x => !!x).forEach(n => {
+        rows += `<row r="${rRod}">${sTxt("B" + rRod, n, 3)}</row>`;
+        merges.push(`B${rRod}:K${rRod}`); rRod++;
+    });
 
     const temDesenho = imagens.length > 0;
     const sheet1 = XML + `<worksheet ${NS}><sheetViews><sheetView showGridLines="0" workbookViewId="0"/></sheetViews>` +

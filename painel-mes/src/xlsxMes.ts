@@ -1,10 +1,10 @@
-// Gerador de .xlsx do Painel Dia (sem bibliotecas): zip sem compressão + XML das planilhas.
+// Gerador de .xlsx do Painel Mês (sem bibliotecas): zip sem compressão + XML das planilhas.
 export interface LinhaMes { nome: string; uf: string; sup: string; mes: number | null; fam: (number | null)[]; vend: number; }
 export interface CabMes { vendMes: number; cliMes: number; repsMes: number; reps: number[]; repsPainel: number; }
 export interface OpcoesMes { cards: boolean; medidores: boolean; tabela: boolean; dados: boolean; }
 export interface ImagemMes { png: Uint8Array; w: number; h: number; }
 export interface EntradaMes {
-    titulo: string; geradoEm: string; linhas: LinhaMes[]; card: ImagemMes | null; medidores: ImagemMes[]; opcoes: OpcoesMes;
+    titulo: string; geradoEm: string; periodo?: string; filtros?: string; linhas: LinhaMes[]; card: ImagemMes | null; medidores: ImagemMes[]; opcoes: OpcoesMes;
 }
 const enc = new TextEncoder();
 const CRC: number[] = (() => {
@@ -122,6 +122,13 @@ export function gerarXlsxMes(e: EntradaMes): Uint8Array {
             rows += `<row r="${r}">${c}</row>`;
         });
     }
+
+    // rodapé: período e filtros aplicados (botão Filtros), como no Pedido Diário / Reps Sem Pedidos
+    let rRod = o.tabela ? primeira + e.linhas.length + 1 : linhaFaixa;
+    [e.periodo || "", e.filtros || ""].filter(x => !!x).forEach(n => {
+        rows += `<row r="${rRod}">${sTxt("B" + rRod, n, 3)}</row>`;
+        merges.push(`B${rRod}:J${rRod}`); rRod++;
+    });
 
     const imgs: { img: ImagemMes; col: number; linha: number; larg: number; alt: number }[] = [];
     if (card) { imgs.push({ img: card, col: 1, linha: linhaImg - 1, larg: LARG_CARD, alt: altCard }); }

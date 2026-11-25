@@ -7,7 +7,8 @@ import { gerarXlsxReps, EntradaReps } from "../reps-sem-pedidos/src/xlsxReps";
 import { ANTON_B64 } from "./fonte";
 
 interface CargaDia extends Omit<EntradaDia, "imagens"> { tipo: "painelDia"; svgs: { svg: string; w: number; h: number }[]; }
-interface CargaMes { tipo: "painelMes"; titulo: string; geradoEm: string; linhas: LinhaMes[]; opcoes: EntradaMes["opcoes"]; card: { svg: string; w: number; h: number } | null; svgs: { svg: string; w: number; h: number }[]; }
+// Painel Mês v1.1 / Painel Dia v1.2 mandam também periodo/filtros (rodapé do Excel); versões antigas não mandam
+interface CargaMes { tipo: "painelMes"; titulo: string; geradoEm: string; periodo?: string; filtros?: string; linhas: LinhaMes[]; opcoes: EntradaMes["opcoes"]; card: { svg: string; w: number; h: number } | null; svgs: { svg: string; w: number; h: number }[]; }
 // Pedido Diário: v2 (oficial) manda periodo/filtros e só tabela/dados; v1 mandava card/svgs (ignorados: o Excel sai sem imagens/topo)
 interface CargaPedido { tipo: "pedidoDiario"; versao?: number; titulo: string; geradoEm: string; periodo?: string; filtros?: string; dias: number[]; linhas: LinhaPedido[]; opcoes: EntradaPedido["opcoes"]; card?: unknown; svgs?: { svg: string; w: number; h: number }[]; }
 interface CargaReps extends EntradaReps { tipo: "repsSemPedidos"; svgs?: undefined; }
@@ -76,7 +77,7 @@ function entregar(bytes: Uint8Array, nome: string, mime: string): void {
             } else if ((carga as CargaMes).tipo === "painelMes") {
                 const m = carga as CargaMes;
                 const card = m.card ? await png(m.card) : null;
-                entregar(gerarXlsxMes({ titulo: m.titulo, geradoEm: m.geradoEm, linhas: m.linhas, opcoes: m.opcoes, card, medidores: imagens }), nome, mime);
+                entregar(gerarXlsxMes({ titulo: m.titulo, geradoEm: m.geradoEm, periodo: m.periodo || "", filtros: m.filtros || "", linhas: m.linhas, opcoes: m.opcoes, card, medidores: imagens }), nome, mime);
             } else if ((carga as CargaPedido).tipo === "pedidoDiario") {
                 const m = carga as CargaPedido;
                 const op = m.opcoes || { tabela: true, dados: false };
@@ -86,6 +87,6 @@ function entregar(bytes: Uint8Array, nome: string, mime: string): void {
         } else if (d) {
             const b = b64u(d);
             entregar(p.get("c") === "1" ? await inflar(b) : b, nome, p.get("t") || mime);
-        } else { erro("Nenhum arquivo recebido (página v2.0; o endereço chegou com " + location.hash.length + " caracteres depois do #). Abra esta página pelo botão Exportar do painel."); }
+        } else { erro("Nenhum arquivo recebido (página v2.1; o endereço chegou com " + location.hash.length + " caracteres depois do #). Abra esta página pelo botão Exportar do painel."); }
     } catch (e) { erro("O arquivo chegou incompleto ou passou do limite do endereço. " + (e instanceof Error ? e.message : "")); }
 })();
