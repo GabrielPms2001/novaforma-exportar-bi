@@ -4,8 +4,8 @@
     "displayName": "Pedido Diário (NovaForma)",
     "guid": "pedidoDiarioNovaForma9F411DBD7B4C4C528782B486968DD46E",
     "visualClassName": "Visual",
-    "version": "1.0.0.0",
-    "description": "Pedido Diario: card, medidores por familia e matriz de clientes positivados por dia util do mes por representante; exporta para Excel",
+    "version": "2.0.0.0",
+    "description": "Pedido Diario: matriz de clientes positivados por dia do mes por representante, com botao Filtros que filtra a pagina e exportacao para Excel",
     "supportUrl": "https://novaforma.example",
     "gitHubUrl": ""
   },

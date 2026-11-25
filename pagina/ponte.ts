@@ -8,7 +8,8 @@ import { ANTON_B64 } from "./fonte";
 
 interface CargaDia extends Omit<EntradaDia, "imagens"> { tipo: "painelDia"; svgs: { svg: string; w: number; h: number }[]; }
 interface CargaMes { tipo: "painelMes"; titulo: string; geradoEm: string; linhas: LinhaMes[]; opcoes: EntradaMes["opcoes"]; card: { svg: string; w: number; h: number } | null; svgs: { svg: string; w: number; h: number }[]; }
-interface CargaPedido { tipo: "pedidoDiario"; titulo: string; geradoEm: string; dias: number[]; linhas: LinhaPedido[]; opcoes: EntradaPedido["opcoes"]; card: { svg: string; w: number; h: number } | null; svgs: { svg: string; w: number; h: number }[]; }
+// Pedido Diário: v2 (oficial) manda periodo/filtros e só tabela/dados; v1 mandava card/svgs (ignorados: o Excel sai sem imagens/topo)
+interface CargaPedido { tipo: "pedidoDiario"; versao?: number; titulo: string; geradoEm: string; periodo?: string; filtros?: string; dias: number[]; linhas: LinhaPedido[]; opcoes: EntradaPedido["opcoes"]; card?: unknown; svgs?: { svg: string; w: number; h: number }[]; }
 interface CargaReps extends EntradaReps { tipo: "repsSemPedidos"; svgs?: undefined; }
 interface Carga extends Omit<EntradaXlsx, "imagens"> { svgs: { svg: string; w: number; h: number }[]; }
 
@@ -67,7 +68,8 @@ function entregar(bytes: Uint8Array, nome: string, mime: string): void {
             const carga = JSON.parse(new TextDecoder().decode(bruto)) as Carga | CargaDia | CargaMes | CargaPedido | CargaReps;
             const png = async (g: { svg: string; w: number; h: number }) => ({ png: await svgParaPng(g.svg, g.w, g.h), w: g.w, h: g.h });
             const imagens = [];
-            for (const g of carga.svgs || []) { imagens.push(await png(g)); }
+            const semImagens = (carga as CargaPedido).tipo === "pedidoDiario" || (carga as CargaReps).tipo === "repsSemPedidos";
+            for (const g of semImagens ? [] : carga.svgs || []) { imagens.push(await png(g)); }
             if ((carga as CargaReps).tipo === "repsSemPedidos") {
                 const m = carga as CargaReps;
                 entregar(gerarXlsxReps({ titulo: m.titulo, faixa: m.faixa, geradoEm: m.geradoEm, periodo: m.periodo, filtros: m.filtros, linhas: m.linhas, opcoes: m.opcoes }), nome, mime);
@@ -77,13 +79,13 @@ function entregar(bytes: Uint8Array, nome: string, mime: string): void {
                 entregar(gerarXlsxMes({ titulo: m.titulo, geradoEm: m.geradoEm, linhas: m.linhas, opcoes: m.opcoes, card, medidores: imagens }), nome, mime);
             } else if ((carga as CargaPedido).tipo === "pedidoDiario") {
                 const m = carga as CargaPedido;
-                const card = m.card ? await png(m.card) : null;
-                entregar(gerarXlsxPedido({ titulo: m.titulo, geradoEm: m.geradoEm, dias: m.dias, linhas: m.linhas, opcoes: m.opcoes, card, medidores: imagens }), nome, mime);
+                const op = m.opcoes || { tabela: true, dados: false };
+                entregar(gerarXlsxPedido({ titulo: m.titulo, geradoEm: m.geradoEm, periodo: m.periodo || "", filtros: m.filtros || "", dias: m.dias || [], linhas: m.linhas || [], opcoes: { tabela: !!op.tabela, dados: !!op.dados } }), nome, mime);
             } else if ((carga as CargaDia).tipo === "painelDia") { entregar(gerarXlsxDia({ ...(carga as CargaDia), imagens }), nome, mime); }
             else { entregar(gerarXlsx({ ...(carga as Carga), imagens }), nome, mime); }
         } else if (d) {
             const b = b64u(d);
             entregar(p.get("c") === "1" ? await inflar(b) : b, nome, p.get("t") || mime);
-        } else { erro("Nenhum arquivo recebido (página v1.9; o endereço chegou com " + location.hash.length + " caracteres depois do #). Abra esta página pelo botão Exportar do painel."); }
+        } else { erro("Nenhum arquivo recebido (página v2.0; o endereço chegou com " + location.hash.length + " caracteres depois do #). Abra esta página pelo botão Exportar do painel."); }
     } catch (e) { erro("O arquivo chegou incompleto ou passou do limite do endereço. " + (e instanceof Error ? e.message : "")); }
 })();

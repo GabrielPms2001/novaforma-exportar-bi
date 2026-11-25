@@ -16,16 +16,28 @@
         {
             "displayName": "Representante",
             "name": "rep",
-            "kind": "Grouping"
+            "kind": "Grouping",
+            "description": "d_Representantes[Nome do Rep]"
         },
         {
             "displayName": "Pedido Diário (medida)",
             "name": "dados",
-            "kind": "Measure"
+            "kind": "Measure",
+            "description": "Medida Pedido Diário (visual)"
         }
     ],
     "dataViewMappings": [
         {
+            "conditions": [
+                {
+                    "rep": {
+                        "max": 1
+                    },
+                    "dados": {
+                        "max": 1
+                    }
+                }
+            ],
             "table": {
                 "rows": {
                     "select": [
@@ -50,6 +62,23 @@
         }
     ],
     "objects": {
+        "general": {
+            "displayName": "Geral",
+            "properties": {
+                "filter": {
+                    "type": {
+                        "filter": true
+                    }
+                },
+                "selfFilter": {
+                    "type": {
+                        "filter": {
+                            "selfFilter": true
+                        }
+                    }
+                }
+            }
+        },
         "titulo": {
             "displayName": "Título",
             "properties": {
@@ -63,23 +92,6 @@
                     "displayName": "Texto",
                     "type": {
                         "text": true
-                    }
-                }
-            }
-        },
-        "medidores": {
-            "displayName": "Medidores",
-            "properties": {
-                "inicioAmarelo": {
-                    "displayName": "Início do amarelo (%)",
-                    "type": {
-                        "numeric": true
-                    }
-                },
-                "inicioVerde": {
-                    "displayName": "Início do verde (%)",
-                    "type": {
-                        "numeric": true
                     }
                 }
             }
@@ -101,6 +113,71 @@
                                 "color": true
                             }
                         }
+                    }
+                }
+            }
+        },
+        "filtros": {
+            "displayName": "Filtros",
+            "properties": {
+                "mostrarBotao": {
+                    "displayName": "Mostrar botão Filtros",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "filtrarVisual": {
+                    "displayName": "Filtrar também este visual",
+                    "type": {
+                        "bool": true
+                    }
+                },
+                "colAno": {
+                    "displayName": "Ano (Tabela[Coluna])",
+                    "type": {
+                        "text": true
+                    }
+                },
+                "colMes": {
+                    "displayName": "Mês (Tabela[Coluna])",
+                    "type": {
+                        "text": true
+                    }
+                },
+                "colDia": {
+                    "displayName": "Dia (Tabela[Coluna])",
+                    "type": {
+                        "text": true
+                    }
+                },
+                "colSup": {
+                    "displayName": "Supervisão (Tabela[Coluna])",
+                    "type": {
+                        "text": true
+                    }
+                },
+                "colRep": {
+                    "displayName": "Representante (Tabela[Coluna])",
+                    "type": {
+                        "text": true
+                    }
+                },
+                "colFam": {
+                    "displayName": "Família (Tabela[Coluna]; ...)",
+                    "type": {
+                        "text": true
+                    }
+                },
+                "colMat": {
+                    "displayName": "Material (Tabela[Coluna]; ...)",
+                    "type": {
+                        "text": true
+                    }
+                },
+                "colUf": {
+                    "displayName": "UF (Tabela[Coluna])",
+                    "type": {
+                        "text": true
                     }
                 }
             }
@@ -134,5 +211,6 @@
                 }
             }
         }
-    }
+    },
+    "supportsKeyboardFocus": true
 }

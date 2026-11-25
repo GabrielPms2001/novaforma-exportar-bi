@@ -1,9 +1,10 @@
-// Gerador de .xlsx do Pedido Diário (sem bibliotecas): zip sem compressão + XML das planilhas.
+// Gerador de .xlsx do Pedido Diário v2 (sem bibliotecas): zip sem compressão + XML das planilhas.
+// Só células (sem imagens): aba com a tabela (título, cabeçalho, matriz por dia, notas) e, opcional, aba Dados.
 export interface LinhaPedido { nome: string; uf: string; sup: string; mes: number | null; vend: number; q: (number | null)[]; }
-export interface OpcoesPedido { cards: boolean; medidores: boolean; tabela: boolean; dados: boolean; }
-export interface ImagemPedido { png: Uint8Array; w: number; h: number; }
+// cards/medidores: só existiam na v1 (aceitos e ignorados, para links antigos continuarem gerando a tabela)
+export interface OpcoesPedido { tabela: boolean; dados: boolean; cards?: boolean; medidores?: boolean; }
 export interface EntradaPedido {
-    titulo: string; geradoEm: string; dias: number[]; linhas: LinhaPedido[]; card: ImagemPedido | null; medidores: ImagemPedido[]; opcoes: OpcoesPedido;
+    titulo: string; geradoEm: string; periodo?: string; filtros?: string; dias: number[]; linhas: LinhaPedido[]; opcoes: OpcoesPedido;
 }
 const enc = new TextEncoder();
 const CRC: number[] = (() => {
@@ -23,18 +24,13 @@ function crc32(b: Uint8Array): number {
 function esc(s: string): string {
     return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
-function letra(i: number): string {
-    let s = "";
-    let n = i + 1;
-    while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); }
-    return s;
-}
 function sTxt(ref: string, texto: string, estilo = 0): string {
     return `<c r="${ref}" t="inlineStr" s="${estilo}"><is><t xml:space="preserve">${esc(texto)}</t></is></c>`;
 }
 function sNum(ref: string, n: number, estilo = 0): string {
     return `<c r="${ref}" s="${estilo}"><v>${n}</v></c>`;
 }
+function vazio(ref: string, estilo: number): string { return `<c r="${ref}" s="${estilo}"/>`; }
 
 interface Arquivo { nome: string; dados: Uint8Array; }
 
@@ -74,181 +70,142 @@ function zip(arquivos: Arquivo[]): Uint8Array {
 
 const NS = `xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"`;
 const XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n`;
-const EMU = 9525;
-const LARG_MED = 170;
-const LARG_CARD = 200;
-// larguras das colunas (unidades de caractere do Excel): A, B (nome), C (UF), D (SUP), depois um dia por coluna
-const W_FIXAS = [3, 34, 6, 14];
-const W_DIA = 5;
-function px(w: number): number { return Math.round(w * 7 + 5); }
+function letra(i: number): string {
+    let s = "";
+    let n = i + 1;
+    while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = Math.floor((n - 1) / 26); }
+    return s;
+}
+
+// estilos (índices de cellXfs)
+const S = { titulo: 1, cab: 2, nome: 3, uf: 4, sup: 5, dia: 6, vazio: 7, nota: 8, dCab: 9, dTxt: 10, dNum: 11, dVal: 12, semDados: 13 };
 
 export function gerarXlsxPedido(e: EntradaPedido): Uint8Array {
     const o = e.opcoes;
-    const nd = e.dias.length;
-    const ultima = 3 + Math.max(nd, 1); // índice (0 = A) da última coluna da tabela
-    const larguras: number[] = [...W_FIXAS];
-    for (let i = 0; i < Math.max(nd, 8); i++) { larguras.push(W_DIA); }
-    // posição (coluna + deslocamento) a partir de um x em pixels
-    const ancora = (x: number): { col: number; off: number } => {
-        let col = 0, ini = 0;
-        while (col < larguras.length - 1 && ini + px(larguras[col]) <= x) { ini += px(larguras[col]); col++; }
-        return { col, off: x - ini };
-    };
-    const card = o.cards ? e.card : null;
-    const medidores = o.medidores ? e.medidores : [];
-    const altMed = medidores.map(i => Math.round(LARG_MED * i.h / i.w));
-    const altCard = card ? Math.round(LARG_CARD * card.h / card.w) : 0;
-    const bloco = Math.ceil(Math.max(0, ...altMed) / 20) + 1;
-    const linhasTopo = Math.max(card ? Math.ceil(altCard / 20) + 1 : 0, medidores.length ? bloco * (medidores.length > 3 ? 2 : 1) : 0);
+    const dias = e.dias || [];
+    const nd = dias.length;
+    const abas: { nome: string; xml: string }[] = [];
 
-    const linhaImg = 4;
-    const linhaCab = linhaImg + (linhasTopo ? linhasTopo + 1 : 0);
-    const primeira = linhaCab + 1;
-
-    const iGer = Math.max(ultima - 4, 4); // "Gerado em" ocupa as 5 últimas colunas (mescladas)
-    let faixa = sTxt("B2", e.titulo.toUpperCase(), 11);
-    for (let c = 2; c < iGer; c++) { faixa += `<c r="${letra(c)}2" s="11"/>`; }
-    faixa += sTxt(letra(iGer) + "2", "Gerado em " + e.geradoEm, 12);
-    for (let c = iGer + 1; c <= Math.max(ultima, iGer + 4); c++) { faixa += `<c r="${letra(c)}2" s="12"/>`; }
-    let rows = `<row r="2" ht="26" customHeight="1">${faixa}</row>`;
-    const merges: string[] = [`${letra(iGer)}2:${letra(Math.max(ultima, iGer + 4))}2`];
-
-    if (o.tabela) {
-        let cab = sTxt("B" + linhaCab, "REPRESENTANTES", 19) + sTxt("C" + linhaCab, "UF", 19) + sTxt("D" + linhaCab, "SUP", 19);
-        e.dias.forEach((d, j) => { cab += sNum(letra(4 + j) + linhaCab, d, 19); });
-        rows += `<row r="${linhaCab}" ht="20" customHeight="1">${cab}</row>`;
-        e.linhas.forEach((l, i) => {
-            const r = primeira + i;
-            let c = sTxt("B" + r, l.nome, 20) + sTxt("C" + r, l.uf, 21) + sTxt("D" + r, l.sup, 0);
-            l.q.forEach((v, j) => { c += v === null ? `<c r="${letra(4 + j)}${r}" s="24"/>` : sNum(letra(4 + j) + r, v, 23); });
-            rows += `<row r="${r}">${c}</row>`;
+    if (o.tabela || !o.dados) {
+        const ult = 3 + Math.max(nd, 1); // última coluna da tabela (0 = A)
+        const L = letra(ult);
+        const cheias = (r: number, estilo: number, de = 2): string => { let s = ""; for (let c = de; c <= ult; c++) { s += vazio(letra(c) + r, estilo); } return s; };
+        let rows = "";
+        const merges: string[] = [];
+        let r = 2;
+        rows += `<row r="${r}" ht="30" customHeight="1">${sTxt("B" + r, (e.titulo || "").toUpperCase(), S.titulo)}${cheias(r, S.titulo)}</row>`;
+        merges.push(`B${r}:${L}${r}`); r++;
+        let cab = sTxt("B" + r, "REPRESENTANTES", S.cab) + sTxt("C" + r, "UF", S.cab) + sTxt("D" + r, "SUP", S.cab);
+        if (!nd) { cab += vazio("E" + r, S.cab); }
+        dias.forEach((d, j) => { cab += sNum(letra(4 + j) + r, d, S.cab); });
+        rows += `<row r="${r}" ht="21" customHeight="1">${cab}</row>`;
+        r++;
+        if (!e.linhas.length) {
+            rows += `<row r="${r}" ht="20" customHeight="1">${sTxt("B" + r, "Sem representantes para os filtros escolhidos.", S.semDados)}${cheias(r, S.semDados, 2)}</row>`;
+            merges.push(`B${r}:${L}${r}`); r++;
+        }
+        e.linhas.forEach(l => {
+            let c = sTxt("B" + r, l.nome, S.nome) + sTxt("C" + r, l.uf, S.uf) + sTxt("D" + r, l.sup, S.sup);
+            if (!nd) { c += vazio("E" + r, S.vazio); }
+            dias.forEach((_, j) => {
+                const v = l.q ? l.q[j] : null;
+                c += v === null || v === undefined ? vazio(letra(4 + j) + r, S.vazio) : sNum(letra(4 + j) + r, v, S.dia);
+            });
+            rows += `<row r="${r}" ht="18" customHeight="1">${c}</row>`;
+            r++;
+        });
+        r++;
+        const notas = ["Gerado em " + e.geradoEm, e.periodo || "", e.filtros || ""].filter(x => !!x);
+        notas.forEach(n => {
+            rows += `<row r="${r}">${sTxt("B" + r, n, S.nota)}${cheias(r, S.nota)}</row>`;
+            merges.push(`B${r}:${L}${r}`); r++;
+        });
+        let cols = `<col min="1" max="1" width="1.5" customWidth="1"/><col min="2" max="2" width="40" customWidth="1"/><col min="3" max="3" width="6" customWidth="1"/><col min="4" max="4" width="13" customWidth="1"/>`;
+        cols += `<col min="5" max="${4 + Math.max(nd, 1)}" width="4.6" customWidth="1"/>`;
+        abas.push({
+            nome: "Pedido Diário",
+            xml: XML + `<worksheet ${NS}><sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><sheetViews><sheetView showGridLines="0" workbookViewId="0"><pane ySplit="3" topLeftCell="A4" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>` +
+                `<cols>${cols}</cols><sheetData>${rows}</sheetData>` +
+                `<mergeCells count="${merges.length}">${merges.map(m => `<mergeCell ref="${m}"/>`).join("")}</mergeCells>` +
+                `<pageMargins left="0.4" right="0.4" top="0.5" bottom="0.5" header="0.3" footer="0.3"/><pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/></worksheet>`
         });
     }
 
-    const imgs: { img: ImagemPedido; col: number; off: number; linha: number; larg: number; alt: number }[] = [];
-    if (card) { imgs.push({ img: card, col: 1, off: 0, linha: linhaImg - 1, larg: LARG_CARD, alt: altCard }); }
-    const xMed0 = px(W_FIXAS[0]) + Math.max(px(W_FIXAS[1]), card ? LARG_CARD + 20 : 0);
-    medidores.forEach((m, i) => {
-        const a = ancora(xMed0 + (i % 3) * (LARG_MED + 12));
-        imgs.push({ img: m, col: a.col, off: a.off, linha: linhaImg - 1 + Math.floor(i / 3) * bloco, larg: LARG_MED, alt: altMed[i] });
-    });
-    const temDesenho = imgs.length > 0;
-    const cols = larguras.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join("");
-    // impressão: paisagem, 1 página de largura
-    const sheet1 = XML + `<worksheet ${NS}><sheetPr><pageSetUpPr fitToPage="1"/></sheetPr><sheetViews><sheetView showGridLines="0" workbookViewId="0"/></sheetViews>` +
-        `<cols>${cols}</cols>` +
-        `<sheetData>${rows}</sheetData>` +
-        (merges.length ? `<mergeCells count="${merges.length}">${merges.map(m => `<mergeCell ref="${m}"/>`).join("")}</mergeCells>` : "") +
-        `<pageMargins left="0.4" right="0.4" top="0.5" bottom="0.5" header="0.3" footer="0.3"/><pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/>` +
-        `${temDesenho ? '<drawing r:id="rId1"/>' : ""}</worksheet>`;
-    const rels1 = XML + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/></Relationships>`;
-    let pics = "";
-    imgs.forEach((p, i) => {
-        const cx = p.larg * EMU, cy = p.alt * EMU;
-        pics += `<xdr:oneCellAnchor><xdr:from><xdr:col>${p.col}</xdr:col><xdr:colOff>${p.off * EMU}</xdr:colOff><xdr:row>${p.linha}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>` +
-            `<xdr:ext cx="${cx}" cy="${cy}"/>` +
-            `<xdr:pic><xdr:nvPicPr><xdr:cNvPr id="${i + 2}" name="Imagem ${i + 1}"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr>` +
-            `<xdr:blipFill><a:blip r:embed="rId${i + 1}"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>` +
-            `<xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor>`;
-    });
-    const drawing = XML + `<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">${pics}</xdr:wsDr>`;
-    const drawingRels = XML + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
-        imgs.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image${i + 1}.png"/>`).join("") + `</Relationships>`;
-
-    let sheet2 = "";
+    const ultD = letra(4 + nd);
+    const nLin = Math.max(e.linhas.length + 1, 1);
     if (o.dados) {
-        const cabs = ["Representante", "UF", "SUP", "CLI MÊS", ...e.dias.map(d => "Dia " + d), "Vendido no mês (R$)"];
-        let d = `<row r="1">${cabs.map((h, i) => sTxt(letra(i) + "1", h, 1)).join("")}</row>`;
+        const cabs = ["Representante", "UF", "SUP", "CLI MÊS", ...dias.map(d => "Dia " + d), "Vendido no mês (R$)"];
+        let d = `<row r="1">${cabs.map((h, i) => sTxt(letra(i) + "1", h, S.dCab)).join("")}</row>`;
         e.linhas.forEach((l, i) => {
             const r = i + 2;
-            let c = sTxt("A" + r, l.nome) + sTxt("B" + r, l.uf) + sTxt("C" + r, l.sup);
-            if (l.mes !== null) { c += sNum("D" + r, l.mes, 8); }
-            l.q.forEach((v, j) => { if (v !== null) { c += sNum(letra(4 + j) + r, v, 8); } });
-            c += sNum(letra(4 + nd) + r, l.vend, 31);
+            let c = sTxt("A" + r, l.nome, S.dTxt) + sTxt("B" + r, l.uf, S.dTxt) + sTxt("C" + r, l.sup, S.dTxt);
+            if (l.mes !== null && l.mes !== undefined) { c += sNum("D" + r, l.mes, S.dNum); }
+            dias.forEach((_, j) => { const v = l.q ? l.q[j] : null; if (v !== null && v !== undefined) { c += sNum(letra(4 + j) + r, v, S.dNum); } });
+            c += sNum(letra(4 + nd) + r, Number(l.vend) || 0, S.dVal);
             d += `<row r="${r}">${c}</row>`;
         });
-        sheet2 = XML + `<worksheet ${NS}><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>` +
-            `<cols><col min="1" max="1" width="38" customWidth="1"/><col min="2" max="3" width="12" customWidth="1"/><col min="4" max="${4 + nd}" width="9" customWidth="1"/><col min="${5 + nd}" max="${5 + nd}" width="20" customWidth="1"/></cols><sheetData>${d}</sheetData></worksheet>`;
+        abas.push({
+            nome: "Dados",
+            xml: XML + `<worksheet ${NS}><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>` +
+                `<cols><col min="1" max="1" width="40" customWidth="1"/><col min="2" max="2" width="7" customWidth="1"/><col min="3" max="3" width="14" customWidth="1"/><col min="4" max="${4 + nd}" width="9" customWidth="1"/><col min="${5 + nd}" max="${5 + nd}" width="20" customWidth="1"/></cols>` +
+                `<sheetData>${d}</sheetData><autoFilter ref="A1:${ultD}${nLin}"/></worksheet>`
+        });
     }
 
-    const fam = ["FF2B9D8F", "FFF4B400", "FFBDBDBD", "FFFFFFFF", "FFF25C05"];
-    const fillsFam = fam.map(c => `<fill><patternFill patternType="solid"><fgColor rgb="${c}"/><bgColor indexed="64"/></patternFill></fill>`).join("");
-    const xfFam = fam.map((_, i) => `<xf numFmtId="0" fontId="${i === 3 ? 9 : 1}" fillId="${6 + i}" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center"/></xf>`).join("");
     const styles = XML + `<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">` +
-        `<fonts count="10"><font><sz val="11"/><name val="Calibri"/></font>` +
+        `<numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0.00"/></numFmts>` +
+        `<fonts count="8"><font><sz val="11"/><name val="Calibri"/></font>` +
+        `<font><b/><sz val="16"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>` +
+        `<font><b/><sz val="11"/><color rgb="FF003463"/><name val="Calibri"/></font>` +
+        `<font><b/><sz val="10"/><color rgb="FF333333"/><name val="Arial"/></font>` +
+        `<font><sz val="10"/><color rgb="FF333333"/><name val="Arial"/></font>` +
+        `<font><sz val="9"/><color rgb="FF6B7280"/><name val="Calibri"/></font>` +
         `<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>` +
-        `<font><b/><sz val="18"/><color rgb="FF0B2A4A"/><name val="Calibri"/></font>` +
-        `<font><sz val="11"/><color rgb="FF6B7280"/><name val="Calibri"/></font>` +
-        `<font><b/><sz val="11"/><name val="Calibri"/></font>` +
-        `<font><b/><sz val="16"/><color rgb="FF0B2A4A"/><name val="Calibri"/></font>` +
-        `<font><b/><sz val="14"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>` +
-        `<font><sz val="10"/><color rgb="FFCBD5E1"/><name val="Calibri"/></font>` +
-        `<font><b/><sz val="11"/><color rgb="FF003366"/><name val="Calibri"/></font>` +
-        `<font><b/><sz val="11"/><color rgb="FF1B1B1B"/><name val="Calibri"/></font></fonts>` +
-        `<fills count="11"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>` +
-        `<fill><patternFill patternType="solid"><fgColor rgb="FF0B2A4A"/><bgColor indexed="64"/></patternFill></fill>` +
-        `<fill><patternFill patternType="solid"><fgColor rgb="FFF3F4F6"/><bgColor indexed="64"/></patternFill></fill>` +
-        `<fill><patternFill patternType="solid"><fgColor rgb="FFD3D9E4"/><bgColor indexed="64"/></patternFill></fill>` +
-        `<fill><patternFill patternType="solid"><fgColor rgb="FFFFD6DC"/><bgColor indexed="64"/></patternFill></fill>` + fillsFam + `</fills>` +
-        `<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>` +
+        `<font><i/><sz val="10"/><color rgb="FF6B7280"/><name val="Arial"/></font></fonts>` +
+        `<fills count="5"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>` +
+        `<fill><patternFill patternType="solid"><fgColor rgb="FF003463"/><bgColor indexed="64"/></patternFill></fill>` +
+        `<fill><patternFill patternType="solid"><fgColor rgb="FFD6DCE4"/><bgColor indexed="64"/></patternFill></fill>` +
+        `<fill><patternFill patternType="solid"><fgColor rgb="FFFFD5DA"/><bgColor indexed="64"/></patternFill></fill></fills>` +
+        `<borders count="3"><border><left/><right/><top/><bottom/><diagonal/></border>` +
+        `<border><left/><right/><top/><bottom style="thin"><color rgb="FFD9D9D9"/></bottom><diagonal/></border>` +
+        `<border><left style="thin"><color rgb="FFFFFFFF"/></left><right style="thin"><color rgb="FFFFFFFF"/></right><top/><bottom style="thin"><color rgb="FFD9D9D9"/></bottom><diagonal/></border></borders>` +
         `<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>` +
-        `<cellXfs count="33"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>` +
-        `<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/>` +
-        `<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>` +
-        `<xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1"/>` +
-        `<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>` +
-        `<xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1"/>` +
-        `<xf numFmtId="0" fontId="5" fillId="0" borderId="0" xfId="0" applyFont="1"/>` +
-        `<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="right"/></xf>` +
-        `<xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>` +
-        `<xf numFmtId="3" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1" applyNumberFormat="1"/>` +
-        `<xf numFmtId="3" fontId="5" fillId="0" borderId="0" xfId="0" applyFont="1" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="left"/></xf>` +
+        `<cellXfs count="14"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>` +
+        `<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>` +
+        `<xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>` +
+        `<xf numFmtId="0" fontId="3" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf>` +
+        `<xf numFmtId="0" fontId="3" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>` +
+        `<xf numFmtId="0" fontId="4" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>` +
+        `<xf numFmtId="1" fontId="4" fillId="0" borderId="2" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>` +
+        `<xf numFmtId="0" fontId="4" fillId="4" borderId="2" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>` +
+        `<xf numFmtId="0" fontId="5" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="left" wrapText="1"/></xf>` +
         `<xf numFmtId="0" fontId="6" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/>` +
-        `<xf numFmtId="0" fontId="7" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="right"/></xf>` +
-        `<xf numFmtId="0" fontId="3" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1"/>` +
-        `<xf numFmtId="3" fontId="5" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="left"/></xf>` +
-        `<xf numFmtId="0" fontId="5" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1"/>` +
-        `<xf numFmtId="0" fontId="4" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1"/>` +
-        `<xf numFmtId="3" fontId="4" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1" applyNumberFormat="1"/>` +
-        `<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center"/></xf>` +
-        `<xf numFmtId="0" fontId="8" fillId="4" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center"/></xf>` +
-        `<xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1"/>` +
-        `<xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="center"/></xf>` +
         `<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>` +
-        `<xf numFmtId="1" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center"/></xf>` +
-        `<xf numFmtId="0" fontId="0" fillId="5" borderId="0" xfId="0" applyFill="1" applyAlignment="1"><alignment horizontal="center"/></xf>` +
-        `<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>` + xfFam +
-        `<xf numFmtId="4" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>` +
-        `<xf numFmtId="0" fontId="4" fillId="5" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center"/></xf></cellXfs>` +
+        `<xf numFmtId="1" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>` +
+        `<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>` +
+        `<xf numFmtId="0" fontId="7" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf></cellXfs>` +
         `<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
 
-    const idEstilo = o.dados ? 3 : 2;
-    const workbook = XML + `<workbook ${NS}><sheets><sheet name="Pedido Diário" sheetId="1" r:id="rId1"/>${o.dados ? '<sheet name="Dados" sheetId="2" r:id="rId2"/>' : ""}</sheets></workbook>`;
+    const iDados = abas.findIndex(a => a.nome === "Dados");
+    const workbook = XML + `<workbook ${NS}><sheets>${abas.map((a, i) => `<sheet name="${esc(a.nome)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("")}</sheets>` +
+        (iDados >= 0 ? `<definedNames><definedName name="_xlnm._FilterDatabase" localSheetId="${iDados}" hidden="1">Dados!$A$1:$${ultD}$${nLin}</definedName></definedNames>` : "") +
+        `</workbook>`;
     const wbRels = XML + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
-        `<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>` +
-        (o.dados ? `<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>` : "") +
-        `<Relationship Id="rId${idEstilo}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`;
+        abas.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join("") +
+        `<Relationship Id="rId${abas.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`;
     const rootRels = XML + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`;
     const tipos = XML + `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
-        `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +
-        `<Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/>` +
+        `<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>` +
         `<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>` +
-        `<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>` +
-        (o.dados ? `<Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>` : "") +
-        `<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>` +
-        (temDesenho ? `<Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>` : "") + `</Types>`;
+        abas.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("") +
+        `<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`;
 
     const t = (nome: string, txt: string): Arquivo => ({ nome, dados: enc.encode(txt) });
-    const arquivos: Arquivo[] = [
+    return zip([
         t("[Content_Types].xml", tipos), t("_rels/.rels", rootRels), t("xl/workbook.xml", workbook),
-        t("xl/_rels/workbook.xml.rels", wbRels), t("xl/styles.xml", styles), t("xl/worksheets/sheet1.xml", sheet1)
-    ];
-    if (temDesenho) {
-        arquivos.push(t("xl/worksheets/_rels/sheet1.xml.rels", rels1), t("xl/drawings/drawing1.xml", drawing), t("xl/drawings/_rels/drawing1.xml.rels", drawingRels),
-            ...imgs.map((p, i): Arquivo => ({ nome: `xl/media/image${i + 1}.png`, dados: p.img.png })));
-    }
-    if (o.dados) { arquivos.push(t("xl/worksheets/sheet2.xml", sheet2)); }
-    return zip(arquivos);
+        t("xl/_rels/workbook.xml.rels", wbRels), t("xl/styles.xml", styles),
+        ...abas.map((a, i) => t(`xl/worksheets/sheet${i + 1}.xml`, a.xml))
+    ]);
 }
 export function paraBase64(b: Uint8Array): string {
     let s = "";
