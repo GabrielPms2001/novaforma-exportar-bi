@@ -1,0 +1,57 @@
+// Medida de carga do visual "Painel Mês" (tabela @Medida)
+// Uma linha por representante do painel:  nome|uf|sup|cliMes|FB|FC|CT|PT|AP|vendidoMes
+// Na primeira linha vai junto o cabeçalho, depois de "~":
+//   vendidoMes|cliMesCartao|repsMes|repsFB|repsFC|repsCT|repsPT|repsAP|repsPainel
+Painel Mês (visual) =
+VAR _nome = SELECTEDVALUE ( d_Representantes[Nome do Rep] )
+VAR _exibir = SELECTEDVALUE ( d_Representantes[Chave do Vendedor], _nome )
+VAR _painel =
+    CALCULATE (
+        COUNTROWS ( d_Representantes ),
+        KEEPFILTERS ( d_Representantes[Ativo SAP] = TRUE () ),
+        KEEPFILTERS ( d_Representantes[Código do Vendedor] <> "#" ),
+        KEEPFILTERS ( NOT CONTAINSSTRING ( d_Representantes[Nome do Rep], "VENDA" ) )
+    ) > 0
+VAR _uf = SELECTEDVALUE ( d_Representantes[UF], MIN ( d_Representantes[UF] ) )
+VAR _sup = SELECTEDVALUE ( d_Representantes[Supervisão], MIN ( d_Representantes[Supervisão] ) )
+VAR _mes = [CLI Mês]
+VAR _fb = [CLI Mês FB]
+VAR _fc = [CLI Mês FC]
+VAR _ct = [CLI Mês CT]
+VAR _pt = [CLI Mês PT]
+VAR _ap = [CLI Mês AP]
+VAR _vm = [Vendido Mês]
+VAR _linha =
+    SUBSTITUTE ( SUBSTITUTE ( _exibir, "|", " " ), "~", " " ) & "|" & _uf & "|" & _sup & "|"
+        & IF ( ISBLANK ( _mes ), "", FORMAT ( _mes, "0", "en-US" ) ) & "|"
+        & IF ( ISBLANK ( _fb ), "", FORMAT ( _fb, "0", "en-US" ) ) & "|"
+        & IF ( ISBLANK ( _fc ), "", FORMAT ( _fc, "0", "en-US" ) ) & "|"
+        & IF ( ISBLANK ( _ct ), "", FORMAT ( _ct, "0", "en-US" ) ) & "|"
+        & IF ( ISBLANK ( _pt ), "", FORMAT ( _pt, "0", "en-US" ) ) & "|"
+        & IF ( ISBLANK ( _ap ), "", FORMAT ( _ap, "0", "en-US" ) ) & "|"
+        & FORMAT ( COALESCE ( _vm, 0 ), "0.00", "en-US" )
+VAR _primeiro =
+    CALCULATE (
+        MIN ( d_Representantes[Nome do Rep] ),
+        REMOVEFILTERS ( d_Representantes ),
+        KEEPFILTERS ( d_Representantes[Ativo SAP] = TRUE () ),
+        KEEPFILTERS ( d_Representantes[Código do Vendedor] <> "#" ),
+        KEEPFILTERS ( NOT CONTAINSSTRING ( d_Representantes[Nome do Rep], "VENDA" ) )
+    )
+VAR _cab =
+    IF (
+        _nome = _primeiro,
+        "~"
+            & FORMAT ( COALESCE ( CALCULATE ( [Vendido Mês], REMOVEFILTERS ( d_Representantes ) ), 0 ), "0.00", "en-US" ) & "|"
+            & FORMAT ( COALESCE ( CALCULATE ( [CLI Mês (Cartão)], REMOVEFILTERS ( d_Representantes ) ), 0 ), "0", "en-US" ) & "|"
+            & FORMAT ( COALESCE ( CALCULATE ( [Reps Mês], REMOVEFILTERS ( d_Representantes ) ), 0 ), "0", "en-US" ) & "|"
+            & FORMAT ( COALESCE ( CALCULATE ( [Reps Mês FB], REMOVEFILTERS ( d_Representantes ) ), 0 ), "0", "en-US" ) & "|"
+            & FORMAT ( COALESCE ( CALCULATE ( [Reps Mês FC], REMOVEFILTERS ( d_Representantes ) ), 0 ), "0", "en-US" ) & "|"
+            & FORMAT ( COALESCE ( CALCULATE ( [Reps Mês CT], REMOVEFILTERS ( d_Representantes ) ), 0 ), "0", "en-US" ) & "|"
+            & FORMAT ( COALESCE ( CALCULATE ( [Reps Mês PT], REMOVEFILTERS ( d_Representantes ) ), 0 ), "0", "en-US" ) & "|"
+            & FORMAT ( COALESCE ( CALCULATE ( [Reps Mês AP], REMOVEFILTERS ( d_Representantes ) ), 0 ), "0", "en-US" ) & "|"
+            & FORMAT ( COALESCE ( CALCULATE ( [Reps Painel], REMOVEFILTERS ( d_Representantes ) ), 0 ), "0", "en-US" ),
+        ""
+    )
+RETURN
+    IF ( _painel && NOT ISBLANK ( _nome ), _linha & _cab )
